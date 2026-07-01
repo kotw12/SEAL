@@ -1,0 +1,16 @@
+# SEAL
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+
+# secrets & engagement output — never commit
+.env
+*.sarif
+~/.seal/
+.seal/
+engagements/
+STATUS.md

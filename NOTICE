@@ -1,0 +1,35 @@
+SEAL — Security Evolution from Automated Loop
+Copyright 2026 SEAL contributors
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this product except in compliance with the License. A copy of the License is in
+the LICENSE file.
+
+------------------------------------------------------------------------------
+Third-party engine (not bundled)
+------------------------------------------------------------------------------
+SEAL orchestrates, but does not include or modify, the following tool. SEAL
+invokes it as a separate external program (via its CLI / the `strix` binary or
+the PyPI `strix-agent` package); no strix source code is distributed with SEAL.
+Users obtain strix separately under its own license.
+
+    strix — Open-source AI penetration testing tool
+    Copyright (c) usestrix and contributors
+    Licensed under the Apache License, Version 2.0
+    https://github.com/usestrix/strix   ·   PyPI: strix-agent
+
+  * As of this writing the strix repository ships a LICENSE (Apache-2.0) and no
+    NOTICE file, so there is no upstream NOTICE text to propagate.
+  * "Strix" and related names/logos are trademarks of their owner. Apache-2.0
+    §6 grants no trademark rights; SEAL uses the name only nominatively, to
+    identify the tool it drives, and does not imply endorsement or affiliation.
+
+SEAL is an independent work: driving strix as a separate program (subprocess)
+is use/aggregation, not a derivative work of strix. SEAL's own code under seal/*
+— the orchestrator, the independent LLM-judge verification loop, the
+judge-steered evolution loop, and the CLI — is original to SEAL.
+
+------------------------------------------------------------------------------
+Authorized use only. SEAL automates offensive security actions. Do not run it
+against any system or network without explicit written authorization from the
+system owner. The authors assume no liability for misuse.
