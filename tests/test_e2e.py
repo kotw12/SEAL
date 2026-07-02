@@ -72,6 +72,19 @@ def test_fingerprint_no_separator_collision():
     assert a.id != b.id, "distinct findings must not share a fingerprint"
 
 
+def test_fingerprint_dedups_payload_variants_across_rounds():
+    # Fix A: the same vuln re-found with a mutated payload (encoding-mutation
+    # round) — or just a different query VALUE — must dedup to ONE fingerprint,
+    # so the judge doesn't re-verify / re-report a vuln already found last round.
+    from seal.models import Finding
+    r1 = Finding(vuln_class="sqli", surface="GET /login?user=' OR 1=1", poc="' OR 1=1")
+    r2 = Finding(vuln_class="SQLI", surface="GET /login?user=%27%20OR%201=1", poc="%27 OR 1=1")
+    assert r1.id == r2.id, "same class+surface with a mutated payload must share a fingerprint"
+    # genuinely different surfaces (different path/param) must still differ
+    other = Finding(vuln_class="sqli", surface="GET /search?q=x", poc="x")
+    assert other.id != r1.id, "distinct surfaces must not collapse"
+
+
 def test_archive_handles_none_poc():
     # Review finding #1: _tech_of crashed on poc=None.
     from seal.loops.archive import EliteArchive

@@ -66,12 +66,19 @@ class Finding:
             self.id = self.fingerprint()
 
     def fingerprint(self) -> str:
-        """Stable identity for dedup: same class+surface+poc => same finding.
+        """Stable identity for cross-round dedup: same vuln class + surface =>
+        same finding, regardless of the exact PoC payload.
 
-        Fields are JSON-encoded (not '|'-joined) so a separator character inside
-        a field cannot forge a collision between distinct findings.
+        The PoC is deliberately EXCLUDED. Later rounds (e.g. encoding-mutation)
+        re-discover the same bug with a mutated payload; including the PoC would
+        forge a new fingerprint every round and the judge would re-verify /
+        re-report a vuln already found. The surface is coarsened the same way as
+        the MAP-Elites cell (path + parameter NAMES; query VALUES dropped) so a
+        payload carried in the query string can't defeat dedup either. Fields are
+        JSON-encoded so a separator inside a field cannot forge a collision.
         """
-        raw = json.dumps([self.vuln_class, self.surface, self.poc],
+        raw = json.dumps([self.vuln_class.strip().lower(),
+                          _surface_bucket(self.surface).strip().lower()],
                          ensure_ascii=False).encode("utf-8", "ignore")
         return hashlib.sha1(raw).hexdigest()[:12]
 
