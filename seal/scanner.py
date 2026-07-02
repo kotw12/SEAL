@@ -142,12 +142,40 @@ class ScanRunner(EngagementRunner):
         print(f"    \u27f3 SEAL scanning {target} \u2026 ({mode})", file=sys.stderr, flush=True)
         try:
             if stream:
+                # start_new_session → the engine gets its own process group, so a
+                # hung engine AND its child tree can be killed as a group on timeout.
                 proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE,
-                                        stderr=subprocess.STDOUT, text=True, bufsize=1)
+                                        stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                        start_new_session=True)
+                # Watchdog: the streaming read below blocks on a stalled engine
+                # (e.g. a hung LLM call with no bytes), so a wall-clock timer must
+                # kill it — without this the whole scan waits forever.
+                timeout_s = self.cfg.round_timeout_s or 0
+                timed_out = {"hit": False}
+                if timeout_s:
+                    import threading  # noqa: PLC0415
+                    import signal  # noqa: PLC0415
+                    deadline = time.time() + timeout_s
+
+                    def _watchdog() -> None:
+                        while proc.poll() is None:
+                            if time.time() > deadline:
+                                timed_out["hit"] = True
+                                try:
+                                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                                except (ProcessLookupError, PermissionError, OSError):
+                                    proc.kill()
+                                return
+                            time.sleep(5)
+
+                    threading.Thread(target=_watchdog, daemon=True).start()
                 for line in proc.stdout:   # rebrand the engine banner/name to SEAL
                     sys.stdout.write(line.replace("STRIX", "SEAL").replace("Strix", "SEAL"))
                     sys.stdout.flush()
                 proc.wait()
+                if timed_out["hit"]:
+                    return -1, (f"engine timed out after {timeout_s}s and was killed "
+                                "(hung LLM/network call?) — lower SEAL_ROUND_TIMEOUT_S or retry")
                 return proc.returncode, "(see live output above)"
             proc = subprocess.run(cmd, env=env, capture_output=True, text=True,
                                   timeout=self.cfg.round_timeout_s or None)
