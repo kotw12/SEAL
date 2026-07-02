@@ -122,7 +122,7 @@ def cmd_model(args: argparse.Namespace) -> int:
         for k in settings.KEYS:
             v = cur.get(k, "")
             if k == "OPENROUTER_API_KEY" and v:
-                v = "****" + v[-4:]
+                v = (v[:10] + "\u2026" + v[-6:]) if len(v) > 20 else v
             print(f"  {k:24} = {v or '(unset)'}")
         return 0
     if not sys.stdin.isatty():
@@ -142,7 +142,8 @@ def cmd_model(args: argparse.Namespace) -> int:
         return v.strip() or c
 
     vals = {
-        "OPENROUTER_API_KEY": ask("OpenRouter API key", "OPENROUTER_API_KEY", secret=True),
+        "OPENROUTER_API_KEY": ask("OpenRouter API key (visible — verify it's correct)",
+                                  "OPENROUTER_API_KEY", secret=False),
         "SEAL_ATTACK_MODEL": ask("attack model — scan engine",
                                  "SEAL_ATTACK_MODEL", default="openrouter/deepseek/deepseek-v4-flash"),
         "SEAL_JUDGE_MODEL": ask("judge model — independent verification",
@@ -151,7 +152,10 @@ def cmd_model(args: argparse.Namespace) -> int:
                                        "SEAL_ORCHESTRATOR_MODEL"),
     }
     path = settings.save(vals)
-    print(f"\n[seal] saved to {path} (chmod 600). `seal doctor` to verify.")
+    k = vals.get("OPENROUTER_API_KEY", "")
+    preview = (k[:10] + "…" + k[-6:]) if len(k) > 20 else (k or "(unset)")
+    print(f"\n[seal] saved to {path} (chmod 600)")
+    print(f"       OpenRouter key = {preview}   ← verify this is right")
     return 0
 
 
