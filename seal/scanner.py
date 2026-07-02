@@ -86,7 +86,7 @@ class ScanRunner(EngagementRunner):
         started = time.time()
         before = self._run_dirs()
         err = self._run_engine(target, strategy.instruction)
-        run_dir = self._new_run_dir(before)
+        run_dir = self._new_run_dir(before, target)
         findings = self._parse_run(run_dir, strategy) if run_dir else []
         rr = RoundResult(round_index=strategy.round_index, strategy=strategy,
                          findings=findings, raw_log=str(run_dir or ""),
@@ -115,23 +115,25 @@ class ScanRunner(EngagementRunner):
         cmd = [self.bin, "-t", target, "--instruction", instruction,
                "-n", "-m", self.scan_mode]
         env = dict(os.environ)
-        # Attack model: override the engine's model when SEAL_ATTACK_MODEL is set
-        # (the engine reads STRIX_LLM from its env / config).
+        # Attack model: override the engine's model when SEAL_ATTACK_MODEL is set.
         if self.cfg.attack_model:
             env["STRIX_LLM"] = self.cfg.attack_model
+        # Capture the engine's output so its own banner/TUI never shows — SEAL
+        # presents a single, SEAL-branded progress line and reads findings from
+        # files. Any engine error is surfaced through SEAL (not a raw traceback).
+        print(f"    \u27f3 SEAL scanning {target} \u2026 (engine round, can take minutes)",
+              file=sys.stderr, flush=True)
         try:
-            # Stream the engine's native TUI to the user when attached to a terminal;
-            # SEAL reads findings from files regardless.
-            if sys.stdout.isatty():
-                proc = subprocess.run(cmd, env=env, timeout=self.cfg.round_timeout_s or None)
-            else:
-                proc = subprocess.run(cmd, env=env, capture_output=True, text=True,
-                                      timeout=self.cfg.round_timeout_s or None)
+            proc = subprocess.run(cmd, env=env, capture_output=True, text=True,
+                                  timeout=self.cfg.round_timeout_s or None)
         except FileNotFoundError:
             return f"scan engine not found at {self.bin} (set SEAL_ENGINE_BIN)"
         except subprocess.TimeoutExpired:
             return f"scan engine timed out after {self.cfg.round_timeout_s}s"
-        return "" if proc.returncode in (0, 1, 2) else f"scan engine exit {proc.returncode}"
+        if proc.returncode not in (0, 1, 2):
+            tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:] or [""]
+            return f"scan engine failed (exit {proc.returncode}): {tail[0][:200]}"
+        return ""
 
     def _run_dirs(self) -> set[str]:
         try:
@@ -139,17 +141,14 @@ class ScanRunner(EngagementRunner):
         except OSError:
             return set()
 
-    def _new_run_dir(self, before: set[str]) -> Path | None:
+    def _new_run_dir(self, before: set[str], target: str) -> Path | None:
+        # Only accept a run dir created by THIS engagement (its name starts with
+        # the target's slug). No fallback to an arbitrary newest dir — a crashed
+        # engine run must yield zero findings, never a *previous* target's ones.
+        slug = _slug(target)
         after = self._run_dirs()
-        new = sorted(after - before)
-        if new:
-            return self.runs_dir / new[-1]
-        # fallback: newest dir overall
-        try:
-            dirs = [p for p in self.runs_dir.iterdir() if p.is_dir()]
-            return max(dirs, key=lambda p: p.stat().st_mtime) if dirs else None
-        except OSError:
-            return None
+        new = sorted(d for d in (after - before) if d.startswith(slug))
+        return (self.runs_dir / new[-1]) if new else None
 
     # ---- parse engine findings --------------------------------------------
     def _parse_run(self, run_dir: Path, strategy: Strategy | None) -> list[Finding]:
@@ -189,6 +188,14 @@ class ScanRunner(EngagementRunner):
         )
 
 # ---- helpers --------------------------------------------------------------
+def _slug(target: str) -> str:
+    """Engagement slug the way the engine names its run dirs: host, lowercased,
+    non-alphanumerics collapsed to '-'. e.g. https://api.example.com -> api-example-com."""
+    from urllib.parse import urlparse  # noqa: PLC0415
+    host = urlparse(target).hostname or target.split("//")[-1].split("/")[0]
+    return re.sub(r"[^a-z0-9]+", "-", (host or "").lower()).strip("-")
+
+
 def _abs_url(target: str, surface: str) -> str:
     path = surface.split(" ", 1)[-1] if " " in surface else surface
     path = path.strip()

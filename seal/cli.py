@@ -112,6 +112,49 @@ def cmd_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_model(args: argparse.Namespace) -> int:
+    """Interactive config: OpenRouter key + per-role models → ~/.seal/config.env."""
+    import getpass  # noqa: PLC0415
+    from . import settings  # noqa: PLC0415
+    cur = settings.current()
+    if args.show:
+        print("SEAL saved settings (" + str(settings.CONFIG_PATH) + ")")
+        for k in settings.KEYS:
+            v = cur.get(k, "")
+            if k == "OPENROUTER_API_KEY" and v:
+                v = "****" + v[-4:]
+            print(f"  {k:24} = {v or '(unset)'}")
+        return 0
+    if not sys.stdin.isatty():
+        print("seal model needs a terminal (or use `seal model --show`).", file=sys.stderr)
+        return 2
+    print_banner(version=__version__)
+    print("Configure SEAL — press Enter to keep the current value.\n")
+
+    def ask(label: str, key: str, *, secret: bool = False, default: str = "") -> str:
+        c = cur.get(key, "") or default
+        shown = ("****" + c[-4:]) if (secret and c) else (c or "(unset)")
+        prompt = f"  {label}\n    [{shown}] > "
+        try:
+            v = getpass.getpass(prompt) if secret else input(prompt)
+        except EOFError:
+            v = ""
+        return v.strip() or c
+
+    vals = {
+        "OPENROUTER_API_KEY": ask("OpenRouter API key", "OPENROUTER_API_KEY", secret=True),
+        "SEAL_ATTACK_MODEL": ask("attack model — scan engine",
+                                 "SEAL_ATTACK_MODEL", default="openrouter/deepseek/deepseek-v4-flash"),
+        "SEAL_JUDGE_MODEL": ask("judge model — independent verification",
+                                "SEAL_JUDGE_MODEL", default="openrouter/anthropic/claude-sonnet-4-6"),
+        "SEAL_ORCHESTRATOR_MODEL": ask("orchestrator model — evolution (blank = heuristic)",
+                                       "SEAL_ORCHESTRATOR_MODEL"),
+    }
+    path = settings.save(vals)
+    print(f"\n[seal] saved to {path} (chmod 600). `seal doctor` to verify.")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     print_banner(version=__version__)
     cfg = SealConfig(target=args.target or "http://example.test")
@@ -225,6 +268,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--quiet", action="store_true")
     s.set_defaults(func=cmd_scan)
 
+    mdl = sub.add_parser("model", help="configure OpenRouter key + per-role models")
+    mdl.add_argument("--show", action="store_true", help="print saved settings and exit")
+    mdl.set_defaults(func=cmd_model)
+
     doc = sub.add_parser("doctor", help="preflight checks for a real engagement")
     doc.add_argument("--target", default="")
     doc.set_defaults(func=cmd_doctor)
@@ -232,6 +279,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from . import settings  # noqa: PLC0415
+    settings.load_into_env()   # ~/.seal/config.env fills gaps (real env wins)
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

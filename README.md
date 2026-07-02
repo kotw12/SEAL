@@ -67,6 +67,7 @@ SEAL drives an external scan engine (a separate open-source tool, credited in
 ```bash
 seal banner                 # show the banner
 seal demo                   # offline mock engagement — no engine, no network
+seal model                  # configure the OpenRouter key + per-role models (saved)
 seal doctor                 # preflight: scan engine, judge endpoint, keys, docker
 seal scan --target https://TARGET.example --max-rounds 3
 ```
@@ -74,6 +75,9 @@ seal scan --target https://TARGET.example --max-rounds 3
 `seal scan` runs the full autonomous loop against an **authorized** target:
 the engine attacks → the LLM judge verifies each finding → refuted findings steer
 the next evolved round → repeat until the goal, a dry streak, or the round cap.
+
+`seal model` saves the OpenRouter key + per-role models to `~/.seal/config.env`
+(chmod 600); SEAL loads them on startup (real env vars always win).
 
 ## Configuration (`.env` / env)
 

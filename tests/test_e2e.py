@@ -126,6 +126,24 @@ def test_per_role_models_configurable():
     assert c.summary()["orchestrator"] == "or/o"
 
 
+def test_scanner_ignores_previous_target_run_dir():
+    # A crashed scan of target A must NOT return a *previous* target B's findings.
+    import os, tempfile, pathlib
+    from seal.scanner import ScanRunner
+    from seal.config import SealConfig
+    runs = pathlib.Path(tempfile.mkdtemp())
+    (runs / "other-target_old" / "vulnerabilities").mkdir(parents=True)
+    (runs / "other-target_old" / "vulnerabilities" / "vuln-0001.md").write_text(
+        "# X\n**Severity:** HIGH\n", encoding="utf-8")
+    os.environ["SEAL_ENGINE_RUNS"] = str(runs)
+    try:
+        r = ScanRunner(SealConfig(target="https://frontend.example.com/"))
+        before = r._run_dirs()                      # includes other-target_old
+        assert r._new_run_dir(before, "https://frontend.example.com/") is None
+    finally:
+        os.environ.pop("SEAL_ENGINE_RUNS", None)
+
+
 def test_cli_rejects_invalid_fail_on():
     # Review finding #5: invalid --fail-on silently became INFO (exit 1 on everything).
     from seal.cli import main
