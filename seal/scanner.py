@@ -85,9 +85,15 @@ class ScanRunner(EngagementRunner):
     def run_round(self, strategy: Strategy, target: str, workdir: str) -> RoundResult:
         started = time.time()
         before = self._run_dirs()
-        err = self._run_engine(target, strategy.instruction)
+        rc, errtail = self._run_engine(target, strategy.instruction)
         run_dir = self._new_run_dir(before, target)
         findings = self._parse_run(run_dir, strategy) if run_dir else []
+        err = ""
+        if run_dir is None:
+            # No results dir created → the engine crashed or produced nothing.
+            # Surface it (don't silently report 0 findings) with a live-view hint.
+            err = (f"engine produced no findings (exit {rc}): {errtail[:180]} "
+                   "\u2014 re-run with `seal scan --verbose` to watch the engine live")
         rr = RoundResult(round_index=strategy.round_index, strategy=strategy,
                          findings=findings, raw_log=str(run_dir or ""),
                          error=err, started_at=started)
@@ -111,29 +117,31 @@ class ScanRunner(EngagementRunner):
         return True, f"endpoint live (HTTP {status})"
 
     # ---- engine invocation -------------------------------------------------
-    def _run_engine(self, target: str, instruction: str) -> str:
+    def _run_engine(self, target: str, instruction: str) -> tuple[int, str]:
         cmd = [self.bin, "-t", target, "--instruction", instruction,
                "-n", "-m", self.scan_mode]
         env = dict(os.environ)
         # Attack model: override the engine's model when SEAL_ATTACK_MODEL is set.
         if self.cfg.attack_model:
             env["STRIX_LLM"] = self.cfg.attack_model
-        # Capture the engine's output so its own banner/TUI never shows — SEAL
-        # presents a single, SEAL-branded progress line and reads findings from
-        # files. Any engine error is surfaced through SEAL (not a raw traceback).
-        print(f"    \u27f3 SEAL scanning {target} \u2026 (engine round, can take minutes)",
-              file=sys.stderr, flush=True)
+        # SEAL_STREAM=1 (or `seal scan --verbose`) shows the engine live so you
+        # can watch it work / see why it fails. Default captures it (quiet, SEAL
+        # surfaces any error itself). Returns (returncode, last error line).
+        stream = os.environ.get("SEAL_STREAM", "").lower() in ("1", "true", "yes", "on")
+        mode = "live" if stream else "quiet \u2014 can take minutes; add --verbose to watch"
+        print(f"    \u27f3 SEAL scanning {target} \u2026 ({mode})", file=sys.stderr, flush=True)
         try:
+            if stream:
+                proc = subprocess.run(cmd, env=env, timeout=self.cfg.round_timeout_s or None)
+                return proc.returncode, "(see live output above)"
             proc = subprocess.run(cmd, env=env, capture_output=True, text=True,
                                   timeout=self.cfg.round_timeout_s or None)
         except FileNotFoundError:
-            return f"scan engine not found at {self.bin} (set SEAL_ENGINE_BIN)"
+            return -1, f"engine not found at {self.bin} (set SEAL_ENGINE_BIN)"
         except subprocess.TimeoutExpired:
-            return f"scan engine timed out after {self.cfg.round_timeout_s}s"
-        if proc.returncode not in (0, 1, 2):
-            tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-1:] or [""]
-            return f"scan engine failed (exit {proc.returncode}): {tail[0][:200]}"
-        return ""
+            return -1, f"engine timed out after {self.cfg.round_timeout_s}s"
+        lines = (proc.stderr or proc.stdout or "").strip().splitlines()
+        return proc.returncode, (lines[-1][:200] if lines else "")
 
     def _run_dirs(self) -> set[str]:
         try:

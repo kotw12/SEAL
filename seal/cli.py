@@ -93,6 +93,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
         coverage_goal=args.coverage_goal,
         budget_usd=args.budget,
     )
+    if args.verbose:
+        os.environ["SEAL_STREAM"] = "1"
     if args.attack_model:
         cfg.attack_model = args.attack_model
     if args.judge_model or args.model:
@@ -268,6 +270,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--format", choices=["text", "json", "sarif"], default="text")
     s.add_argument("--output", "-o", default=None)
     s.add_argument("--mock", action="store_true", help="use the mock runner (no stack)")
+    s.add_argument("--verbose", "-v", action="store_true",
+                   help="stream the engine live (watch it work / see failures)")
     s.add_argument("--no-preflight", action="store_true", help="skip the preflight gate")
     s.add_argument("--quiet", action="store_true")
     s.set_defaults(func=cmd_scan)
