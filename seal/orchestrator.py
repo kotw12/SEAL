@@ -41,10 +41,11 @@ class SealOrchestrator:
         self.runner = runner
         self.mutator = mutator or self._default_mutator(config)
         self.verifier = verifier or self._default_verifier(config, runner)
-        self.verification = VerificationLoop(self.verifier)
+        self.on_progress = on_progress or _noop
+        # the verification loop streams each judge verdict to the same sink
+        self.verification = VerificationLoop(self.verifier, on_event=self.on_progress)
         self._hints: list[str] = []   # judge-suggested directions → steer evolution
         self.archive = EliteArchive()
-        self.on_progress = on_progress or _noop
 
     @staticmethod
     def _default_mutator(config: SealConfig) -> Mutator:
@@ -95,7 +96,8 @@ class SealOrchestrator:
             history.append(strategy)
             self.archive.note_attempt(strategy.technique)
             self.on_progress("round_start", {"round": round_index, "technique": strategy.technique,
-                                             "focus": strategy.focus_class})
+                                             "focus": strategy.focus_class,
+                                             "steer": (self._hints[-1] if self._hints else "")})
 
             # ---- run the attack round (the scan engine does the work) ----
             round_result = self.runner.run_round(strategy, cfg.target, cfg.workdir)

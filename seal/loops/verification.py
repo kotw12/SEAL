@@ -142,26 +142,47 @@ class VerificationReport:
 
 
 class VerificationLoop:
-    """Re-test each unique candidate finding; classify verified vs refuted."""
+    """Re-test each unique candidate finding; classify verified vs refuted.
 
-    def __init__(self, verifier: Verifier, *, dedup: bool = True):
+    Emits live judge events through `on_event(event, payload)` so a front-end
+    (the CLI live view) can show each real/false-positive verdict — and the
+    judge's reasoning — the moment it's decided, instead of only in the report.
+    """
+
+    def __init__(self, verifier: Verifier, *, dedup: bool = True, on_event=None):
         self.verifier = verifier
         self.dedup = dedup
+        self.on_event = on_event or (lambda _e, _p: None)
 
     def run(self, candidates: list[Finding], target: str, workdir: str,
             *, already_seen: set[str] | None = None) -> VerificationReport:
         seen = set(already_seen or set())
-        report = VerificationReport()
+        pending: list[Finding] = []
         for f in candidates:
             if self.dedup and f.id in seen:
                 continue
             seen.add(f.id)
+            pending.append(f)
+
+        self.on_event("judge_start", {"count": len(pending)})
+        report = VerificationReport()
+        for f in pending:
             ok, notes = self.verifier.verify(f, target, workdir)
             f.verify_notes = notes
+            # The LLM judge stores a "what to investigate instead" hint per
+            # refuted finding; surface it live next to the FP verdict.
+            hint = ""
+            dirs = getattr(self.verifier, "directions", None)
+            if not ok and dirs:
+                hint = dirs[-1]
             if ok:
                 f.status = FindingStatus.VERIFIED
                 report.verified.append(f)
             else:
                 f.status = FindingStatus.REFUTED
                 report.refuted.append(f)
+            self.on_event("judge_finding", {
+                "title": f.title, "class": f.vuln_class,
+                "real": ok, "notes": notes, "hint": hint,
+            })
         return report

@@ -26,29 +26,18 @@ from .report import render
 
 
 # --------------------------------------------------------------------------
-def _progress(event: str, payload: dict) -> None:
-    if event == "round_start":
-        f = f" focus={payload['focus']}" if payload.get("focus") else ""
-        print(f"  ▸ round {payload['round']}  technique={payload['technique']}{f}", file=sys.stderr)
-    elif event == "round_verified":
-        print(f"    verified {payload['verified']}/{payload['candidates']} "
-              f"(refuted {payload['refuted']}, FP-rate {payload['fp_rate']}), "
-              f"coverage={payload['coverage']}, +{payload['new_elites']} new",
-              file=sys.stderr)
-    elif event == "round_error":
-        print(f"    ! round error: {payload['error']}", file=sys.stderr)
-    elif event == "engagement_end":
-        print(f"  ■ done: {payload['stop_reason']} "
-              f"({payload['verified']} verified over {payload['rounds']} rounds)", file=sys.stderr)
-
-
-def _run_engagement(cfg: SealConfig, show_banner: bool = True) -> EngagementResult:
+def _run_engagement(cfg: SealConfig, show_banner: bool = True,
+                    quiet: bool = False) -> EngagementResult:
     from .orchestrator import SealOrchestrator
     from .engine import build_runner
+    from .liveview import LiveView
     if show_banner:
         print_banner(version=__version__)
     runner = build_runner(cfg)
-    orch = SealOrchestrator(cfg, runner, on_progress=_progress)
+    # LiveView renders the loop (scan → judge verdict-by-verdict → evolve) like a
+    # TUI as it runs; quiet mode drops it to nothing (report still prints).
+    on_progress = None if quiet else LiveView()
+    orch = SealOrchestrator(cfg, runner, on_progress=on_progress)
     return orch.run()
 
 
@@ -70,7 +59,7 @@ def cmd_banner(args: argparse.Namespace) -> int:
 def cmd_demo(args: argparse.Namespace) -> int:
     cfg = SealConfig(target="http://demo.local", runner="mock",
                      max_rounds=args.max_rounds, max_dry_rounds=2)
-    result = _run_engagement(cfg, show_banner=not args.quiet)
+    result = _run_engagement(cfg, show_banner=not args.quiet, quiet=args.quiet)
     _emit(result, args.format, args.output)
     return 0
 
@@ -103,7 +92,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
         cfg.orchestrator_model = args.orchestrator_model
     if not args.mock and not _preflight_ok(cfg, strict=not args.no_preflight):
         return 3
-    result = _run_engagement(cfg, show_banner=not args.quiet)
+    result = _run_engagement(cfg, show_banner=not args.quiet, quiet=args.quiet)
     _emit(result, args.format, args.output)
     # exit non-zero if a finding at/above --fail-on was verified
     if args.fail_on:
