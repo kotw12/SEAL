@@ -124,6 +124,14 @@ class ScanRunner(EngagementRunner):
         # Attack model: override the engine's model when SEAL_ATTACK_MODEL is set.
         if self.cfg.attack_model:
             env["STRIX_LLM"] = self.cfg.attack_model
+        # Pass the OpenRouter key to the engine for OpenRouter models. When SEAL
+        # sets the model via env the engine won't read its own config for the key,
+        # so without this it sends no Authorization header (401 Missing Auth).
+        _model = (self.cfg.attack_model or env.get("STRIX_LLM", "")).lower()
+        _key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("SEAL_JUDGE_API_KEY", "")
+        if _key and "openrouter" in _model:
+            env["LLM_API_KEY"] = _key
+            env["OPENROUTER_API_KEY"] = _key
         # SEAL_STREAM=1 (or `seal scan --verbose`) shows the engine live so you
         # can watch it work / see why it fails. Default captures it (quiet, SEAL
         # surfaces any error itself). Returns (returncode, last error line).
@@ -132,7 +140,12 @@ class ScanRunner(EngagementRunner):
         print(f"    \u27f3 SEAL scanning {target} \u2026 ({mode})", file=sys.stderr, flush=True)
         try:
             if stream:
-                proc = subprocess.run(cmd, env=env, timeout=self.cfg.round_timeout_s or None)
+                proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT, text=True, bufsize=1)
+                for line in proc.stdout:   # rebrand the engine banner/name to SEAL
+                    sys.stdout.write(line.replace("STRIX", "SEAL").replace("Strix", "SEAL"))
+                    sys.stdout.flush()
+                proc.wait()
                 return proc.returncode, "(see live output above)"
             proc = subprocess.run(cmd, env=env, capture_output=True, text=True,
                                   timeout=self.cfg.round_timeout_s or None)
