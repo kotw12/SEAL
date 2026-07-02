@@ -135,8 +135,10 @@ class ScanRunner(EngagementRunner):
         # SEAL_STREAM=1 (or `seal scan --verbose`) shows the engine live so you
         # can watch it work / see why it fails. Default captures it (quiet, SEAL
         # surfaces any error itself). Returns (returncode, last error line).
-        stream = os.environ.get("SEAL_STREAM", "").lower() in ("1", "true", "yes", "on")
-        mode = "live" if stream else "quiet \u2014 can take minutes; add --verbose to watch"
+        # Stream the engine (SEAL-rebranded) by default so you always see it
+        # working; SEAL_STREAM=0 (or nothing to watch) captures it quietly.
+        stream = os.environ.get("SEAL_STREAM", "1").lower() not in ("0", "false", "no", "off")
+        mode = "live" if stream else "quiet (SEAL_STREAM=0)"
         print(f"    \u27f3 SEAL scanning {target} \u2026 ({mode})", file=sys.stderr, flush=True)
         try:
             if stream:
